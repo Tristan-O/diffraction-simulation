@@ -346,9 +346,9 @@ class ElectronDiffractionSpots:
     def pattern_as_array(self, g_max:float, dq:float, sample_thickness:float=None):
         M = int(2*g_max/dq)
         shape = np.array([M,M])
-        arr = np.zeros(shape)
+        arr = np.zeros(shape, dtype=complex)
 
-        _,g,_,I = self.get_intensity(sample_thickness=sample_thickness)
+        _,g,Fg,_ = self.get_intensity(sample_thickness=sample_thickness)
 
         g_mask = (g[:,0] >= -g_max+dq)&\
                  (g[:,0] <= +g_max-dq)&\
@@ -356,8 +356,10 @@ class ElectronDiffractionSpots:
                  (g[:,1] <= +g_max-dq)
 
         ij = np.rint(g[g_mask]/dq).astype(int)[:,:2] + shape[None,:]//2
-        arr[ij[:,0], ij[:,1]] = I[g_mask]
-        return arr
+
+        np.add.at(arr, (ij[:,0], ij[:,1]), Fg[g_mask]) # Add the structure factors that overlap on the same pixel before calculating intensities
+        # arr[ij[:,0], ij[:,1]] = I[g_mask] # this assignment will ignore intensities falling on the same pixel; it only uses the last assignment
+        return np.abs(arr)**2
     def meshgrid(self, g_max:float, dq:float):
         q = np.linspace(-g_max, g_max, int(2*g_max/dq))
         return np.meshgrid(q,q)
