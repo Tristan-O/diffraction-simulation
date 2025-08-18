@@ -187,7 +187,7 @@ class StructureHandler:
 
         handler = StructureHandler( self.struct.copy() )
         for i in range(num_orientations):
-            handler.align_structure(np.random.uniform(0,1, size=3), np.random.uniform(0,1, size=3))
+            handler.align_structure(np.random.uniform(-1,1, size=3), np.random.uniform(-1,1, size=3))
             if i == 0:
                 results = handler.get_excitable_hkl(ewald=ewald, max_sg=max_sg, max_g=max_g)
             else:
