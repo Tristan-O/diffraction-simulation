@@ -1,64 +1,10 @@
 import numpy as np
-import pandas as pd
-import os
-from collections import defaultdict
+from matplotlib.axes import Axes
 from pymatgen.core import Structure
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from pymatgen.ext.matproj import MPRester
+from .electron_atomic_form_factor import default_electron_atomic_form_factors
 
-
-default_form_factors_path = './2025-08-12_Atomic-Form-Factors-0-20inversenm.csv'
-if not os.path.exists(default_form_factors_path):
-    from urllib.request import Request, urlopen
-    from bs4 import BeautifulSoup
-
-    url = "https://it.iucr.org/Cb/ch4o3v0001/sec4o3o2/"
-
-    req = Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-    webpage = urlopen(req).read()
-
-    soup = BeautifulSoup(webpage, 'html.parser')
-
-    # Find all tables
-    tables = soup.find_all('table')
-
-    table = str(tables[5]).replace('−', '-') # unicode minus sign
-    form_factors_df = pd.read_html(table, skiprows=4)[0]
-    form_factors_df = form_factors_df.dropna()
-    print(f"Table {i}:")
-    form_factors_df.columns = ['Element', 'Z'] + [f'a{i}' for i in range(1,6)] + [f'b{i}' for i in range(1,6)]
-    form_factors_df['source'] = url
-    print(form_factors_df.iloc[0])
-    print(len(form_factors_df['Element']))
-    # raise ValueError('Do not scrape again!')
-    form_factors_df.to_csv(default_form_factors_path, index=False)
-form_factors_df = pd.read_csv(default_form_factors_path)
-
-class ElectronAtomicFormFactor:
-    @staticmethod
-    def get_element_info(element:str|int|float):
-        if isinstance(element,(int,float)):
-            row = form_factors_df.loc[form_factors_df['Z'] == element]
-        else:
-            row = form_factors_df.loc[form_factors_df['Element'] == element]
-
-        if row.empty:
-            raise ValueError('Provided element not found!')
-        else:
-            return {k:list(e.values())[0] for k,e in row.to_dict().items()}
-    @classmethod
-    def from_default(cls, element:str|int|float):
-        info = cls.get_element_info(element)
-        A = np.array( [info[f'a{i}'] for i in range(1,6)] )
-        B = np.array( [info[f'b{i}'] for i in range(1,6)] )/100 # from my list, B is in A^-2, but I want to work wth q in nm^-1, so I divide by 100
-        def func(q:float|np.ndarray, A=A, B=B):
-            return np.inner(A, np.exp(-np.outer(np.square(q),B)))
-        return cls(info['Element'], func)
-    def __init__(self, name, func):
-        self.name = name
-        self.func = func
-    def __call__(self, q:float|np.ndarray):
-        return self.func(q)
 
 class EwaldSphere:
     hbar_c = 197 # eV-nm
@@ -97,11 +43,11 @@ class EwaldSphere:
 
 class StructureHandler:
     MATERIALS_PROJECT_API = 'E3sCeYTbOOxpD9gtJ1EgevVyhHUn3w2J'
-    COMMON_MATERIAL_IDS = dict(Si_Fd3m='mp-149', # diamond cubic Si
-                              Se_Pm3m='mp-7755', # simple cubic Se, the only known single-element simple cubic structure
-                              HfO2_Pca21='mp-685097', # ferroelectric orthorhombic HfO2
-                              HfO2_P21c='mp-352', # monoclinic HfO2
-                              HfO2_P42nmc='mp-1018721') # tetragonal HfO2
+    COMMON_MATERIAL_IDS = dict(Si_Fd3m      = 'mp-149',     # diamond cubic Si
+                               Se_Pm3m      = 'mp-7755',    # simple cubic Se, the only known single-element simple cubic structure
+                               HfO2_Pca21   = 'mp-685097',  # ferroelectric orthorhombic HfO2
+                               HfO2_P21c    = 'mp-352',     # monoclinic HfO2
+                               HfO2_P42nmc  = 'mp-1018721') # tetragonal HfO2
     @classmethod
     def from_matproj(cls, material_id:str="Si_Fd3m", conventional_unit_cell=True):
         if material_id in cls.COMMON_MATERIAL_IDS.keys():
@@ -206,8 +152,8 @@ class StructureHandler:
         max_index = int(np.ceil(g_max / np.min(np.linalg.norm([a_vec, b_vec, c_vec], axis=1))))
 
         h, k, l = np.mgrid[-max_index:max_index+1,
-                   -max_index:max_index+1,
-                   -max_index:max_index+1]
+                           -max_index:max_index+1,
+                           -max_index:max_index+1]
         hkl = np.stack((h, k, l), axis=-1).reshape(-1, 3)  # shape (N,3)
 
         g = hkl @ recip.matrix * 10 # inv angstrom to inv nm
@@ -255,15 +201,15 @@ class ElectronDiffractionSpots:
         if sg is None:
             sg = np.zeros_like(self.q)
         self.sg = sg
-        self.Fg = self.calculate_structure_factor(struct)
+
+        self.default_electron_atomic_form_factors = default_electron_atomic_form_factors
+        self.calculate_structure_factor(struct)
     def extend(self, other):
-        # print(self.hkl.shape, other.hkl.shape)
         self.hkl = np.vstack((self.hkl, other.hkl))
-        # print(self.hkl.shape)
-        self.g = np.vstack((self.g, other.g))
-        self.q = np.hstack((self.q, other.q))
-        self.sg = np.hstack((self.sg, other.sg))
-        self.Fg = np.hstack((self.Fg, other.Fg))
+        self.g =   np.vstack((self.g, other.g))
+        self.q =   np.hstack((self.q, other.q))
+        self.sg =  np.hstack((self.sg, other.sg))
+        self.Fg =  np.hstack((self.Fg, other.Fg))
     def calculate_structure_factor(self, struct:Structure):
         """
         Complex F_g for electrons.
@@ -271,19 +217,14 @@ class ElectronDiffractionSpots:
         Honors occupancies.
         """
 
-        Fg = np.zeros_like(self.q, dtype=np.complex128)
+        self.Fg = np.zeros_like(self.q, dtype=np.complex128)
         for site in struct.sites:
             # species can be a Composition; iterate with occupancies
             for sp, occ in site.species.items():
-                f_q = ElectronAtomicFormFactor.from_default(sp.symbol)(self.q)
-                if len(f_q) == 1:
-                    f_q = f_q[0]
-                # Debye–Waller if available on the site, else 0
-                B = site.properties.get("B", 0.0)
-                f_q *= np.exp(-B * self.q**2 / (4*np.pi**2))
+                f_q = self.default_electron_atomic_form_factors[sp.symbol](self.q)
+
                 phase = np.exp(2j*np.pi*np.dot(self.hkl, site.frac_coords))
-                Fg += occ * f_q * phase
-        return Fg
+                self.Fg += occ * f_q * phase
     def kinematical_excitation_err_correction(self, sample_thickness:float):
         '''See Fultz and Howe, chapters 6, 8, and 13. Mostly contained within chapter 8.'''
         return np.sinc(np.pi*self.sg*sample_thickness)**2 * sample_thickness**2
@@ -293,39 +234,45 @@ class ElectronDiffractionSpots:
             I *= self.kinematical_excitation_err_correction(sample_thickness=sample_thickness)
         return I
     def pattern_as_array(self, g_max:float, dq:float, sample_thickness:float=None):
-        arr = np.zeros([int(2*g_max/dq)]*2)
-        ijk = np.rint(self.g/dq).astype(int)[:,:2] + np.array(arr.shape)[None,:]//2
-        arr[ijk[:,0], ijk[:,1]] = self.get_intensity(sample_thickness=sample_thickness)        
+        M = int(2*g_max/dq)
+        shape = np.array([M,M])
+        arr = np.zeros(shape)
+
+        g_mask = (self.g[:,0] >= -g_max+dq)&\
+                 (self.g[:,0] <= +g_max-dq)&\
+                 (self.g[:,1] >= -g_max+dq)&\
+                 (self.g[:,1] <= +g_max-dq)
+
+        ij = np.rint(self.g[g_mask]/dq).astype(int)[:,:2] + shape[None,:]//2
+        arr[ij[:,0], ij[:,1]] = self.get_intensity(sample_thickness=sample_thickness)[g_mask]
         return arr
     def meshgrid(self, g_max:float, dq:float):
         q = np.linspace(-g_max, g_max, int(2*g_max/dq))
         return np.meshgrid(q,q)
+    def pcolor(self, axes:Axes, tight:bool=True, Nq:int=100, sample_thickness:float=None, **kwargs):
+        g_max = np.max(self.q)
+        if tight:
+            g_max /= np.sqrt(2)
+        
+        dq = 2*g_max/Nq
 
+        if not axes.get_xlabel():
+            axes.set_xlabel('$nm^{-1}$')
+        if not axes.get_ylabel():
+            axes.set_ylabel('$nm^{-1}$')
 
-if __name__ == '__main__':
-    # print(ElectronAtomicFormFactor.from_default('O')([0,10,20]))
-    ewald = EwaldSphere(300e3)
-    struct = StructureHandler.from_matproj("HfO2_Pca21")
+        arr = self.pattern_as_array(g_max,dq, sample_thickness=sample_thickness)
+        qx,qy = self.meshgrid(g_max,dq)
+        return axes.pcolor(qx, qy, arr, **kwargs)
+    def hist(self, axes:Axes, radial_weight:bool=True, sample_thickness:float=None, **kwargs):
+        if 'weights' not in kwargs.keys():
+            w = self.get_intensity(sample_thickness=sample_thickness)
+            if radial_weight:
+                w /= np.linalg.norm(self.g[:,:2]) # don't use q here because of geometric line broadening
+            kwargs.update(weights=w)
 
-    g_max = 5
-    dq = 0.1
-    sg_max = 1
-    dp = struct.get_excitable_hkl(ewald, sg_max, g_max)
-    print('# spots:',len(dp.q))
+        if not axes.get_xlabel():
+            axes.set_xlabel('$nm^{-1}$')
 
-    from matplotlib import pyplot as plt
-    fig,(ax1,ax2) = plt.subplots(1,2, figsize=(10,6))
-    # plt.pcolor(*dp.meshgrid(g_max,dq), dp.pattern_as_array(g_max,dq), norm='log')
-    # plt.show()
+        return axes.hist(np.linalg.norm(self.g[:,:2], axis=1), **kwargs)
 
-    powder = struct.powder_hkl(ewald, sg_max, g_max, num_orientations=10000)
-    arr = powder.pattern_as_array(g_max,dq, sample_thickness=10)
-    arr[arr == 0] = np.min(arr[arr!=0])
-
-    ax1.pcolor(*powder.meshgrid(g_max,dq), arr, norm='log')
-    ax1.set_xlabel('$nm^{-1}$')
-    # plt.show()
-
-    ax2.hist(powder.q, weights=powder.get_intensity(10)/powder.q, bins=100)
-    ax2.set_xlim(1,g_max)
-    plt.show()
