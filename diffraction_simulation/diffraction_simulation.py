@@ -111,7 +111,7 @@ class StructureHandler:
         '''Implemented before I knew about https://pymatgen.org/pymatgen.vis.html#pymatgen.vis.structure_chemview.quick_view'''
         fig = plt.figure()
         ax = fig.add_subplot(111, projection='3d', proj_type='ortho')
-        ax.set_title(f'${self.struct.get_space_group_info()[0]}$ (BCT)')
+        ax.set_title(f'${self.struct.get_space_group_info()[0]}$')
         ax.set_aspect('equal')
         ax.set_xlabel('x')
         ax.set_ylabel('y')
@@ -137,7 +137,7 @@ class StructureHandler:
                       b_lo<=yf<=b_hi and
                       c_lo<=zf<=c_hi and 
                       el == site.specie  ):
-                    x,y,z = site.coords - origin
+                    x,y,z = (site.coords - origin)/10 # angstrom to nm
                     all_x.append(x)
                     all_y.append(y)
                     all_z.append(z)
@@ -150,7 +150,7 @@ class StructureHandler:
         
         if frame:
             o = [0,0,0]
-            a1,a2,a3 = self.struct.lattice.matrix
+            a1,a2,a3 = self.struct.lattice.matrix/10 # angstrom to nm
             edges = [
                 (o, a1),
                 (o, a2),
