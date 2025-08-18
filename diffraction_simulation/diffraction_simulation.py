@@ -1,5 +1,6 @@
 import numpy as np
 from matplotlib.axes import Axes
+from matplotlib import pyplot as plt
 from pymatgen.core import Structure
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from pymatgen.ext.matproj import MPRester
@@ -103,6 +104,72 @@ class StructureHandler:
             coords=self.struct.frac_coords,
             coords_are_cartesian=False
         )
+    def plot_unit_cell(self, low_frac:tuple[float,float,float]=(-0.1,-0.1,-0.1),
+                             high_frac:tuple[float,float,float]=(1.1,1.1,1.1),
+                             frame:bool=True, colors:dict=None, sizes:dict={'default':100},
+                             origin:tuple=(0,0,0)):
+        '''Implemented before I knew about https://pymatgen.org/pymatgen.vis.html#pymatgen.vis.structure_chemview.quick_view'''
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection='3d', proj_type='ortho')
+        ax.set_title(f'${self.struct.get_space_group_info()[0]}$ (BCT)')
+        ax.set_aspect('equal')
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.set_zlabel('z')
+
+        a_lo = low_frac[0]
+        b_lo = low_frac[1]
+        c_lo = low_frac[2]
+        a_hi = high_frac[0]
+        b_hi = high_frac[1]
+        c_hi = high_frac[2]
+
+        supercell = self.struct.make_supercell(3,in_place=False)
+
+        origin = np.array(origin)
+        # Plot the atoms
+        for el in set(self.struct.species):
+            all_x, all_y, all_z = [],[],[]
+            for site in supercell:
+                xf,yf,zf = self.struct.lattice.get_fractional_coords(site.coords) # go through sites in supercell, map them back to the single cell, keep only the atoms whose coords fall within the desired unit cell
+
+                if (  a_lo<=xf<=a_hi and 
+                      b_lo<=yf<=b_hi and
+                      c_lo<=zf<=c_hi and 
+                      el == site.specie  ):
+                    x,y,z = site.coords - origin
+                    all_x.append(x)
+                    all_y.append(y)
+                    all_z.append(z)
+            ax.scatter(all_x,
+                       all_y,
+                       all_z, 
+                       label=el, 
+                       s=sizes[el] if el in sizes else sizes['default'],
+                       color=colors[el] if colors is not None else None)
+        
+        if frame:
+            o = [0,0,0]
+            a1,a2,a3 = self.struct.lattice.matrix
+            edges = [
+                (o, a1),
+                (o, a2),
+                (o, a3),
+                (a1, a1 + a2),
+                (a1, a1 + a3),
+                (a2, a2 + a1),
+                (a2, a2 + a3),
+                (a3, a3 + a1),
+                (a3, a3 + a2),
+                (a1 + a2, a1 + a2 + a3),
+                (a1 + a3, a1 + a2 + a3),
+                (a2 + a3, a1 + a2 + a3)
+            ]
+            for start, end in edges:
+                xs, ys, zs = zip(start, end)
+                ax.plot(xs, ys, zs, color='black')
+
+        return fig, ax
     def get_hkl_family(self, hkl:tuple[int,int,int])->set[tuple[int,int,int]]:
         '''Get all members of the family of [hkl] equivalent by the symmetry of the provided pymatgen structure.'''
 
