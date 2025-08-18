@@ -1,5 +1,6 @@
 import numpy as np
 from matplotlib.axes import Axes
+from matplotlib import colormaps
 from matplotlib import pyplot as plt
 from pymatgen.core import Structure
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
@@ -332,21 +333,22 @@ class ElectronDiffractionSpots:
             np.add.at(Fg, inv, self.Fg )
 
         I = np.abs(Fg)**2
-        
+
         hkl = hkl[I>eps]
         unique_g = unique_g[I>eps]
+        Fg = Fg[I>eps]
         I = I[I>eps]
 
         if normalize:
             I /= np.sum(I)
 
-        return hkl, unique_g, I
+        return hkl, unique_g, Fg, I
     def pattern_as_array(self, g_max:float, dq:float, sample_thickness:float=None):
         M = int(2*g_max/dq)
         shape = np.array([M,M])
         arr = np.zeros(shape)
 
-        _,g,I = self.get_intensity(sample_thickness=sample_thickness)
+        _,g,_,I = self.get_intensity(sample_thickness=sample_thickness)
 
         g_mask = (g[:,0] >= -g_max+dq)&\
                  (g[:,0] <= +g_max-dq)&\
@@ -359,7 +361,7 @@ class ElectronDiffractionSpots:
     def meshgrid(self, g_max:float, dq:float):
         q = np.linspace(-g_max, g_max, int(2*g_max/dq))
         return np.meshgrid(q,q)
-    def pcolor(self, axes:Axes, tight:bool=True, Nq:int=100, sample_thickness:float=None, **kwargs):
+    def pcolor(self, axes:Axes, tight:bool=True, Nq:int=100, sample_thickness:float=None, label_hkl:bool=False, nan_color='black', color='gray', **kwargs):
         g_max = np.max(self.q)
         if tight:
             g_max /= np.sqrt(2)
@@ -370,12 +372,27 @@ class ElectronDiffractionSpots:
             axes.set_xlabel('$nm^{-1}$')
         if not axes.get_ylabel():
             axes.set_ylabel('$nm^{-1}$')
-
+        
         arr = self.pattern_as_array(g_max,dq, sample_thickness=sample_thickness)
         qx,qy = self.meshgrid(g_max,dq)
-        return axes.pcolor(qx, qy, arr, **kwargs)
+
+        if 'norm' in kwargs.keys():
+            if kwargs['norm'].lower() == 'log':
+                arr[arr==0] = np.nan
+        cmap = colormaps[color]
+        cmap.set_bad(nan_color)
+
+        # Use a masked array so that nan values are handled by the colormap
+        arr_masked = np.ma.masked_invalid(arr)
+
+        im = axes.pcolormesh(qx, qy, arr_masked, cmap=cmap, **kwargs)
+
+        if label_hkl:
+            pass
+
+        return im
     def hist(self, axes:Axes, radial_weight:bool=True, sample_thickness:float=None, **kwargs):
-        _,g,I = self.get_intensity(sample_thickness=sample_thickness)
+        _,g,_,I = self.get_intensity(sample_thickness=sample_thickness)
         if 'weights' not in kwargs.keys():
             w = I
             if radial_weight:
@@ -383,7 +400,7 @@ class ElectronDiffractionSpots:
             kwargs.update(weights=w)
 
         if not axes.get_xlabel():
-            axes.set_xlabel('$nm^{-1}$')
+            axes.set_xlabel('$q (nm^{-1})$')
 
         return axes.hist(np.linalg.norm(g, axis=1), **kwargs)
 
