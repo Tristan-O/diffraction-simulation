@@ -221,10 +221,8 @@ class ElectronDiffractionSpots:
     def calculate_structure_factor(self, struct:Structure):
         """
         Complex F_g for electrons.
-        Uses site property 'B' for the Debye Waller factor (Å^2) if present. 
         Honors occupancies.
         """
-
         self.Fg = np.zeros_like(self.q, dtype=np.complex128)
         for site in struct.sites:
             # species can be a Composition; iterate with occupancies
