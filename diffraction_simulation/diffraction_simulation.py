@@ -141,7 +141,7 @@ class StructureHandler:
             exclude_000 (bool): Whether or not to exclude the [000] reflection. Default `True`.
 
         Returns:
-            ElectronDiffractionSpots
+            ElectronDiffractionSpots:
         """
         max_sg = abs(max_sg)
 
@@ -234,7 +234,24 @@ class ElectronDiffractionSpots:
     def kinematical_excitation_err_correction(self, sample_thickness:float):
         '''See Fultz and Howe, chapters 6, 8, and 13. Mostly contained within chapter 8.'''
         return np.sinc(np.pi*self.sg*sample_thickness) * sample_thickness # squared later
-    def get_intensity(self, sample_thickness:float=None):
+    def get_intensity(self, sample_thickness:float=None, normalize:bool=True, eps:float=1e-9):
+        """
+        Calculate the diffraction intensity for unique in-plane g-vectors.
+        This method groups structure factors (Fg) by unique in-plane g-vectors, sums them,
+        applies optional excitation error correction for a given sample thickness, and computes
+        the intensity as the squared modulus of the summed structure factors. Intensities below
+        a specified threshold (eps) are filtered out. Optionally, the intensities can be normalized.
+        
+        Args:
+            sample_thickness (float): The thickness of the sample. If provided and self.sg is not None, applies excitation error correction to the structure factors.
+            normalize (bool): If True, normalize the output intensities so that their sum is 1.
+            eps (float): Minimum intensity threshold. Intensities below this value are excluded from the output.
+        
+        Returns:
+            hkl (np.ndarray): Miller indices corresponding to the unique g-vectors with intensity above the threshold.
+            unique_g (np.ndarray): Unique in-plane g-vectors (shape: [N, 2]) with intensity above the threshold.
+            I (np.ndarray): Intensities corresponding to each unique g-vector, optionally normalized.
+        """
         # Find unique g vectors (in the plane of the detector) and map each row to a group index, so that I can sum the structure factors before doing abs()^2
         unique_g, idx, inv = np.unique(self.g[:,:2], axis=0, return_index=True, return_inverse=True)
         hkl = self.hkl[np.unique(idx),:] # get associated hkl with these unique_g. This logic won't work for multiple layers as those could overlap in the same spot but originate from different hkl.
@@ -248,6 +265,14 @@ class ElectronDiffractionSpots:
             np.add.at(Fg, inv, self.Fg )
 
         I = np.abs(Fg)**2
+        
+        hkl = hkl[I>eps]
+        unique_g = unique_g[I>eps]
+        I = I[I>eps]
+
+        if normalize:
+            I /= np.sum(I)
+
         return hkl, unique_g, I
     def pattern_as_array(self, g_max:float, dq:float, sample_thickness:float=None):
         M = int(2*g_max/dq)
