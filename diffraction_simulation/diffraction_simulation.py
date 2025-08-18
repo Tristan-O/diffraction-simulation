@@ -205,11 +205,12 @@ class ElectronDiffractionSpots:
         self.default_electron_atomic_form_factors = default_electron_atomic_form_factors
         self.calculate_structure_factor(struct)
     def extend(self, other):
-        self.hkl = np.vstack((self.hkl, other.hkl))
-        self.g =   np.vstack((self.g, other.g))
-        self.q =   np.hstack((self.q, other.q))
-        self.sg =  np.hstack((self.sg, other.sg))
-        self.Fg =  np.hstack((self.Fg, other.Fg))
+        # NOTE: the same hkl could end up being defined here, but they could correspond to different sg or Fg, so they should still be kept separate
+        self.hkl = np.vstack( (self.hkl, other.hkl) )
+        self.g   = np.vstack( (self.g,   other.g)   )
+        self.q   = np.hstack( (self.q,   other.q)   )
+        self.sg  = np.hstack( (self.sg,  other.sg)  )
+        self.Fg  = np.hstack( (self.Fg,  other.Fg)  )
     def calculate_structure_factor(self, struct:Structure):
         """
         Complex F_g for electrons.
@@ -227,24 +228,36 @@ class ElectronDiffractionSpots:
                 self.Fg += occ * f_q * phase
     def kinematical_excitation_err_correction(self, sample_thickness:float):
         '''See Fultz and Howe, chapters 6, 8, and 13. Mostly contained within chapter 8.'''
-        return np.sinc(np.pi*self.sg*sample_thickness)**2 * sample_thickness**2
+        return np.sinc(np.pi*self.sg*sample_thickness) * sample_thickness # squared later
     def get_intensity(self, sample_thickness:float=None):
-        I = np.abs(self.Fg)**2
+        # Find unique g vectors (in the plane of the detector) and map each row to a group index, so that I can sum the structure factors before doing abs()^2
+        unique_g, idx, inv = np.unique(self.g[:,:2], axis=0, return_index=True, return_inverse=True)
+        hkl = self.hkl[np.unique(idx),:] # get associated hkl with these unique_g. This logic won't work for multiple layers as those could overlap in the same spot but originate from different hkl.
+
+        # Sum vals by group index
+        Fg = np.zeros(len(unique_g), dtype=complex)
+        # Accumulate with np.add.at
         if sample_thickness is not None and self.sg is not None:
-            I *= self.kinematical_excitation_err_correction(sample_thickness=sample_thickness)
-        return I
+            np.add.at(Fg, inv, self.Fg * self.kinematical_excitation_err_correction(sample_thickness=sample_thickness))
+        else:
+            np.add.at(Fg, inv, self.Fg )
+
+        I = np.abs(Fg)**2
+        return hkl, unique_g, I
     def pattern_as_array(self, g_max:float, dq:float, sample_thickness:float=None):
         M = int(2*g_max/dq)
         shape = np.array([M,M])
         arr = np.zeros(shape)
 
-        g_mask = (self.g[:,0] >= -g_max+dq)&\
-                 (self.g[:,0] <= +g_max-dq)&\
-                 (self.g[:,1] >= -g_max+dq)&\
-                 (self.g[:,1] <= +g_max-dq)
+        _,g,I = self.get_intensity(sample_thickness=sample_thickness)
 
-        ij = np.rint(self.g[g_mask]/dq).astype(int)[:,:2] + shape[None,:]//2
-        arr[ij[:,0], ij[:,1]] = self.get_intensity(sample_thickness=sample_thickness)[g_mask]
+        g_mask = (g[:,0] >= -g_max+dq)&\
+                 (g[:,0] <= +g_max-dq)&\
+                 (g[:,1] >= -g_max+dq)&\
+                 (g[:,1] <= +g_max-dq)
+
+        ij = np.rint(g[g_mask]/dq).astype(int)[:,:2] + shape[None,:]//2
+        arr[ij[:,0], ij[:,1]] = I[g_mask]
         return arr
     def meshgrid(self, g_max:float, dq:float):
         q = np.linspace(-g_max, g_max, int(2*g_max/dq))
@@ -265,14 +278,15 @@ class ElectronDiffractionSpots:
         qx,qy = self.meshgrid(g_max,dq)
         return axes.pcolor(qx, qy, arr, **kwargs)
     def hist(self, axes:Axes, radial_weight:bool=True, sample_thickness:float=None, **kwargs):
+        _,g,I = self.get_intensity(sample_thickness=sample_thickness)
         if 'weights' not in kwargs.keys():
-            w = self.get_intensity(sample_thickness=sample_thickness)
+            w = I
             if radial_weight:
-                w /= np.linalg.norm(self.g[:,:2]) # don't use q here because of geometric line broadening
+                w /= np.linalg.norm(g,axis=1) # don't use q here because of geometric line broadening
             kwargs.update(weights=w)
 
         if not axes.get_xlabel():
             axes.set_xlabel('$nm^{-1}$')
 
-        return axes.hist(np.linalg.norm(self.g[:,:2], axis=1), **kwargs)
+        return axes.hist(np.linalg.norm(g, axis=1), **kwargs)
 
