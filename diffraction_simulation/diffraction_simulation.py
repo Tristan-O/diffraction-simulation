@@ -128,35 +128,42 @@ class StructureHandler:
             return True
         else:
             return False
-    def get_excitable_hkl(self, ewald:EwaldSphere, max_sg:float, max_g:float=None, kx:float=0, ky:float=0):
+    def get_excitable_hkl(self, ewald:EwaldSphere, max_sg:float, max_g:float=None, kx:float=0, ky:float=0, exclude_000:bool=True):
         """
         Returns all [hkl] reciprocal lattice vectors that lie within
         the Ewald sphere of radius k_mag and satisfy the excitation error cutoff s_max.
 
         Args:
-            structure (Structure): pymatgen Structure (lattice already aligned if needed)
+            ewald (EwaldSphere): An EwaldSphere object which contains the beam energy used.
+            max_sg (float): The maximum allowed excitation error.
+            max_g (float): The maximum allowed reciprocal lattice vector length. If `None`, no restriction is placed on the maximum.
+            kx, ky (float): The beam tilt. Assumed to be small. Default `0`.
+            exclude_000 (bool): Whether or not to exclude the [000] reflection. Default `True`.
 
         Returns:
-            list[ElectronDiffractionSpot]
+            ElectronDiffractionSpots
         """
         max_sg = abs(max_sg)
 
         recip = self.struct.lattice.reciprocal_lattice_crystallographic
-        a_vec, b_vec, c_vec = recip.matrix * 10 # inv angstrom to inv nm
+        matrix = recip.matrix * 10 # inv angstrom to inv nm
 
         # Estimate max h,k,l needed to cover |g| <= 2*k (Ewald sphere diameter), give a little more just to make sure
         if max_g is not None:
             g_max = 2.1 * max_g
         else:
             g_max = 2.1 * ewald.k_z
-        max_index = int(np.ceil(g_max / np.min(np.linalg.norm([a_vec, b_vec, c_vec], axis=1))))
+        max_index = int(np.ceil(g_max / np.min(np.linalg.norm(matrix, axis=1))))
 
         h, k, l = np.mgrid[-max_index:max_index+1,
                            -max_index:max_index+1,
                            -max_index:max_index+1]
         hkl = np.stack((h, k, l), axis=-1).reshape(-1, 3)  # shape (N,3)
 
-        g = hkl @ recip.matrix * 10 # inv angstrom to inv nm
+        if exclude_000:
+            hkl = hkl[np.any(hkl, axis=1),:] # remove [0,0,0]
+
+        g = hkl @ matrix
         q = np.linalg.norm(g, axis=1)
         
         if max_g is not None:
