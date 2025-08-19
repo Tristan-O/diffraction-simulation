@@ -1,3 +1,4 @@
+from __future__ import annotations
 from collections import defaultdict
 import numpy as np
 from matplotlib.axes import Axes
@@ -494,4 +495,21 @@ class ElectronDiffractionSpots:
             axes.set_xlabel(f'$q ({pretty_unit(StructureHandler.LENGTH_UNIT)}^{{-1}})$')
 
         return axes.hist(np.linalg.norm(g, axis=1), **kwargs)
+    @staticmethod
+    def stacked_hist(axes:Axes, *dps:ElectronDiffractionSpots, radial_weight:bool=True, sample_thickness:float=None, **kwargs):
+        all_g,all_w = [],[]
+        for dp in dps:
+            _,g,_,I = dp.get_intensity(sample_thickness=sample_thickness)
+            if 'weights' not in kwargs.keys():
+                w = I
+                if radial_weight:
+                    w /= np.linalg.norm(g,axis=1) # don't use q here because of geometric line broadening
+                all_w.append(w)
+
+            all_g.append(np.linalg.norm(g[:,:2], axis=1))
+
+        if not axes.get_xlabel():
+            axes.set_xlabel(f'$q ({pretty_unit(StructureHandler.LENGTH_UNIT)}^{{-1}})$')
+        
+        return axes.hist(all_g, weights=all_w, stacked=True, **kwargs)
 
