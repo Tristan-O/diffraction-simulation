@@ -135,6 +135,23 @@ class StructureHandler:
             coords=self.struct.frac_coords,
             coords_are_cartesian=False
         )
+    def BCT2FCC_transform(self):
+        '''
+        Transforms lattice vectors a1 and a2 to (a1-a2) and (a1+a2). 
+        Then realigns those directions with the x and y cartesian axes.
+        The effect is to take a BCT structure and turn it into a (nearly) FCC structure.
+        (It is only truly FCC if the length of a3 was such that it now has the same length as a1' and a2'.)
+        There is no strain applied.
+        '''
+        # define the transformation matrix
+        M = [[1, -1, 0],
+            [1, 1, 0],
+            [0, 0, 1]]
+
+        # apply the transformation
+        self.struct.make_supercell(M)
+        self.struct.apply_operation(SymmOp.from_rotation_and_translation(M,[0,0,0]))
+        return self
     def plot_unit_cell(self, low_frac:tuple[float,float,float]=(-0.1,-0.1,-0.1),
                              high_frac:tuple[float,float,float]=(1.1,1.1,1.1),
                              frame:bool=True, colors:dict=None, sizes:dict={'default':100},
