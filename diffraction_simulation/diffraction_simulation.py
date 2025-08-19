@@ -152,18 +152,19 @@ class StructureHandler:
         self.struct.make_supercell(M)
         self.struct.apply_operation(SymmOp.from_rotation_and_translation(M,[0,0,0]))
         return self
-    def plot_unit_cell(self, low_frac:tuple[float,float,float]=(-0.1,-0.1,-0.1),
+    def plot_unit_cell(self, axes:Axes=None, low_frac:tuple[float,float,float]=(-0.1,-0.1,-0.1),
                              high_frac:tuple[float,float,float]=(1.1,1.1,1.1),
                              frame:bool=True, colors:dict=None, sizes:dict={'default':100},
                              origin:tuple=(0,0,0)):
         '''Implemented before I knew about https://pymatgen.org/pymatgen.vis.html#pymatgen.vis.structure_chemview.quick_view'''
-        fig = plt.figure()
-        ax = fig.add_subplot(111, projection='3d', proj_type='ortho')
-        ax.set_title(f'${self.struct.get_space_group_info()[0]}$')
-        ax.set_aspect('equal')
-        ax.set_xlabel('x')
-        ax.set_ylabel('y')
-        ax.set_zlabel('z')
+        if axes is None:
+            fig = plt.figure()
+            axes = fig.add_subplot(111, projection='3d', proj_type='ortho')
+        axes.set_title(f'${self.struct.get_space_group_info()[0]}$')
+        axes.set_aspect('equal')
+        axes.set_xlabel('x')
+        axes.set_ylabel('y')
+        axes.set_zlabel('z')
 
         a_lo = low_frac[0]
         b_lo = low_frac[1]
@@ -173,6 +174,7 @@ class StructureHandler:
         c_hi = high_frac[2]
 
         supercell = self.struct.make_supercell(3,in_place=False)
+        supercell.translate_sites(range(len(supercell)), [-1./3., -1./3., -1./3.], frac_coords=True, to_unit_cell=False)
 
         origin = np.array(origin)
         # Plot the atoms
@@ -185,11 +187,11 @@ class StructureHandler:
                       b_lo<=yf<=b_hi and
                       c_lo<=zf<=c_hi and 
                       el == site.specie  ):
-                    x,y,z = (site.coords - origin)/10 # angstrom to nm
+                    x,y,z = (site.coords)/10 - origin # angstrom to nm
                     all_x.append(x)
                     all_y.append(y)
                     all_z.append(z)
-            ax.scatter(all_x,
+            axes.scatter(all_x,
                        all_y,
                        all_z, 
                        label=el, 
@@ -215,9 +217,9 @@ class StructureHandler:
             ]
             for start, end in edges:
                 xs, ys, zs = zip(start, end)
-                ax.plot(xs, ys, zs, color='black')
+                axes.plot(xs, ys, zs, color='black')
 
-        return fig, ax
+        return axes
     def get_hkl_family(self, hkl:tuple[int,int,int])->set[tuple[int,int,int]]:
         '''Get all members of the family of [hkl] equivalent by the symmetry of the provided pymatgen structure.'''
 
