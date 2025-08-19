@@ -54,7 +54,8 @@ class StructureHandler:
                                Se_Pm3m      = 'mp-7755',    # simple cubic Se, the only known single-element simple cubic structure
                                HfO2_Pca21   = 'mp-685097',  # ferroelectric orthorhombic HfO2
                                HfO2_P21c    = 'mp-352',     # monoclinic HfO2
-                               HfO2_P42nmc  = 'mp-1018721') # tetragonal HfO2
+                               HfO2_P42nmc  = 'mp-1018721', # tetragonal HfO2
+                               TiN_Fm3m     = 'mp-492')     # cubic TiN
     @classmethod
     def from_matproj(cls, material_id:str="Si_Fd3m", conventional_unit_cell:bool=True, shift_basis:bool=True):
         if material_id in cls.COMMON_MATERIAL_IDS.keys():
