@@ -1,3 +1,4 @@
+from collections import defaultdict
 import numpy as np
 from matplotlib.axes import Axes
 from matplotlib import colormaps
@@ -152,10 +153,68 @@ class StructureHandler:
         self.struct.make_supercell(M)
         self.struct.apply_operation(SymmOp.from_rotation_and_translation(M,[0,0,0]))
         return self
-    def plot_unit_cell(self, axes:Axes=None, low_frac:tuple[float,float,float]=(-0.1,-0.1,-0.1),
-                             high_frac:tuple[float,float,float]=(1.1,1.1,1.1),
-                             frame:bool=True, colors:dict=None, sizes:dict={'default':100},
-                             origin:tuple=(0,0,0)):
+    def _get_atom_positions(self, low_frac:tuple[float,float,float]=(-0.1,-0.1,-0.1),
+                                  high_frac:tuple[float,float,float]=(1.1,1.1,1.1))->dict[str,list[np.ndarray]]:
+        a_lo = low_frac[0]
+        b_lo = low_frac[1]
+        c_lo = low_frac[2]
+        a_hi = high_frac[0]
+        b_hi = high_frac[1]
+        c_hi = high_frac[2]
+
+        # pad a unit cell in all three directions
+        supercell = self.struct.make_supercell(3,in_place=False)
+        supercell.translate_sites(range(len(supercell)), [-1./3., -1./3., -1./3.], frac_coords=True, to_unit_cell=False)
+
+        # Get the atom coordinates (cartesian)
+        coords = defaultdict(list)
+        for el in set(self.struct.species):
+            for site in supercell:
+                xf,yf,zf = self.struct.lattice.get_fractional_coords(site.coords) # go through sites in supercell, map them back to the single cell, keep only the atoms whose coords fall within the desired unit cell
+
+                if (  a_lo<=xf<=a_hi and 
+                      b_lo<=yf<=b_hi and
+                      c_lo<=zf<=c_hi and 
+                      el == site.specie  ):
+                    coords[str(site.specie)].append( site.coords/10 ) # angstrom to nm
+        return coords
+    def plot_unit_cell_2d(self, axes:Axes=None, 
+                       low_frac:tuple[float,float,float]=(-0.1,-0.1,-0.1),
+                       high_frac:tuple[float,float,float]=(1.1,1.1,1.1),
+                       origin:tuple=(0,0,0),
+                       proj_ax_uvw:tuple[float,float,float]=(0,0,1),
+                       x_ax_uvw:tuple[float,float,float]=(1,0,0)):
+        '''Plot the unit cell, as viewed along the desired axis.'''
+
+        normal = self.struct.lattice.matrix @ np.array(proj_ax_uvw) 
+        normal /= np.linalg.norm(normal)
+
+        ref = self.struct.lattice.matrix @ np.array(x_ax_uvw) 
+        ref /= np.linalg.norm(ref)
+
+        # First basis vector in plane (orthogonal to n)
+        u = ref - np.dot(ref, normal) * normal
+        u /= np.linalg.norm(u)
+        
+        # Second basis vector (cross product ensures orthogonality)
+        v = np.cross(normal, u)
+        v /= np.linalg.norm(v)
+        
+
+        for el, coords in self._get_atom_positions(low_frac=low_frac, high_frac=high_frac).items():
+            # Project points into 2D coordinates
+            coords = coords - np.array(origin)
+            x_coords = np.dot(coords, u)
+            y_coords = np.dot(coords, v)
+            coords_2d = np.vstack([x_coords, y_coords]).T
+            x,y = np.transpose(coords_2d)
+            axes.scatter(x, y, label=el)
+        return axes
+    def plot_unit_cell_3d(self, axes:Axes=None, 
+                          low_frac:tuple[float,float,float]=(-0.1,-0.1,-0.1),
+                          high_frac:tuple[float,float,float]=(1.1,1.1,1.1),
+                          origin:tuple=(0,0,0),
+                          frame:bool=True, colors:dict=None, sizes:dict={'default':100}):
         '''Implemented before I knew about https://pymatgen.org/pymatgen.vis.html#pymatgen.vis.structure_chemview.quick_view'''
         if axes is None:
             fig = plt.figure()
@@ -166,37 +225,14 @@ class StructureHandler:
         axes.set_ylabel('y')
         axes.set_zlabel('z')
 
-        a_lo = low_frac[0]
-        b_lo = low_frac[1]
-        c_lo = low_frac[2]
-        a_hi = high_frac[0]
-        b_hi = high_frac[1]
-        c_hi = high_frac[2]
-
-        supercell = self.struct.make_supercell(3,in_place=False)
-        supercell.translate_sites(range(len(supercell)), [-1./3., -1./3., -1./3.], frac_coords=True, to_unit_cell=False)
-
-        origin = np.array(origin)
-        # Plot the atoms
-        for el in set(self.struct.species):
-            all_x, all_y, all_z = [],[],[]
-            for site in supercell:
-                xf,yf,zf = self.struct.lattice.get_fractional_coords(site.coords) # go through sites in supercell, map them back to the single cell, keep only the atoms whose coords fall within the desired unit cell
-
-                if (  a_lo<=xf<=a_hi and 
-                      b_lo<=yf<=b_hi and
-                      c_lo<=zf<=c_hi and 
-                      el == site.specie  ):
-                    x,y,z = (site.coords)/10 - origin # angstrom to nm
-                    all_x.append(x)
-                    all_y.append(y)
-                    all_z.append(z)
-            axes.scatter(all_x,
-                       all_y,
-                       all_z, 
-                       label=el, 
-                       s=sizes[el] if el in sizes else sizes['default'],
-                       color=colors[el] if colors is not None else None)
+        for el, coords in self._get_atom_positions(low_frac=low_frac, high_frac=high_frac).items():
+            x,y,z = np.transpose(coords)
+            axes.scatter(x-origin[0],
+                         y-origin[1],
+                         z-origin[2], 
+                         label=el,
+                         s=sizes[el] if el in sizes else sizes['default'],
+                         color=colors[el] if colors is not None else None)
         
         if frame:
             o = [0,0,0]
