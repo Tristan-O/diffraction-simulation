@@ -3,6 +3,7 @@ from matplotlib.axes import Axes
 from matplotlib import colormaps
 from matplotlib import pyplot as plt
 from pymatgen.core import Structure
+from pymatgen.core.operations import SymmOp
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from pymatgen.ext.matproj import MPRester
 from .electron_atomic_form_factor import default_electron_atomic_form_factors
@@ -51,17 +52,46 @@ class StructureHandler:
                                HfO2_P21c    = 'mp-352',     # monoclinic HfO2
                                HfO2_P42nmc  = 'mp-1018721') # tetragonal HfO2
     @classmethod
-    def from_matproj(cls, material_id:str="Si_Fd3m", conventional_unit_cell=True):
+    def from_matproj(cls, material_id:str="Si_Fd3m", conventional_unit_cell:bool=True, shift_basis:bool=True):
         if material_id in cls.COMMON_MATERIAL_IDS.keys():
             material_id = cls.COMMON_MATERIAL_IDS[material_id]
         with MPRester(cls.MATERIALS_PROJECT_API) as mpr:
-            return cls(mpr.get_structure_by_material_id(material_id=material_id, 
-                                                        conventional_unit_cell=conventional_unit_cell))
+            struct = mpr.get_structure_by_material_id(material_id=material_id, 
+                                                        conventional_unit_cell=conventional_unit_cell)
+        
+        res = cls(struct)
+        if shift_basis:
+            res.shift_to_origin()
+        return res
     def __init__(self, struct:Structure):
         '''Here surface normal are the [uvw] (fractional coordinates) to use for aligning the Structure's surface normal to the incident beam.
            This is 
         '''
         self.struct = struct
+    def shift_to_origin(self, element:str=None):
+        """
+        Translate the structure so that the atom of the selected element (default, the highest Z) closest to the origin is moved to the origin.
+        """
+        if element is None:
+            # Find heaviest element in the structure
+            heaviest_Z = -1
+            for site in self.struct:
+                if site.specie.Z > heaviest_Z:
+                    heaviest_Z = site.specie.Z
+                    # print(site.specie)
+                    element = str(site.specie)
+        
+        # Find the coord closest to the origin
+        coords = []
+        for i, site in enumerate(self.struct):
+            if str(site.specie) == element:
+                coords.append(site.coords)
+        i = np.argmin(np.linalg.norm(coords, axis=1))
+        shift = coords[i]
+        
+        self.struct = self.struct.apply_operation(SymmOp.from_rotation_and_translation(np.eye(3), -shift))
+
+        return self
     def align_structure(self, 
                         beam_incident:tuple[float,float,float]=(0,0,1),
                         beam_x_ref:tuple[float,float,float]=(1,0,0)):
