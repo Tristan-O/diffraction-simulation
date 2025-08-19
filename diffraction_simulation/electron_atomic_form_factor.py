@@ -1,5 +1,5 @@
 import numpy as np
-from .misc import KeyAwareDefaultDict
+from .misc import KeyAwareDefaultDict, convert_unit
 
 class AtomicFormFactor:
     def __init__(self, element:str, func):
@@ -111,10 +111,12 @@ class DefaultElectronAtomicFormFactor(AtomicFormFactor):
         self.element = element
         self.Z = int(self.data[element][0])
         self.A = np.array(self.data[element][1:6])
-        self.B = np.array(self.data[element][6:11]) / 100 # from my list, B is in A^-2, but I want to work wth q in nm^-1, so I divide by 100
+        self.B = np.array(self.data[element][6:11]) # from the list, B is in A^-2
         self.source = self.data[element][11]
-    def __call__(self, q:float|np.ndarray):
+    def __call__(self, q:float|np.ndarray, q_unit:str=None):
         '''Get the atomic form factor at wavevector q (nm^-1)'''
+        if q_unit is not None:
+            q = convert_unit(q, q_unit, '1/angstrom') # B is in A^-2, so convert to 1/A here
         res = np.inner(self.A, np.exp(-np.outer(np.square(q),self.B)))
         if res.size == 1:
             return float(res[0])

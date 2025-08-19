@@ -8,7 +8,7 @@ from pymatgen.core.operations import SymmOp
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from pymatgen.ext.matproj import MPRester
 from .electron_atomic_form_factor import default_electron_atomic_form_factors
-
+from .misc import convert_unit, pretty_unit
 
 class EwaldSphere:
     hbar_c = 197 # eV-nm
@@ -17,18 +17,18 @@ class EwaldSphere:
         self.energy_eV = energy_eV
     @property
     def wavelength(self):
-        '''Get the wavelength in nm'''
-        return 2*np.pi*self.hbar_c / np.sqrt(self.energy_eV**2 + 2*self.m0*self.energy_eV)
+        '''Get the wavelength in the length units of StructureHandler (default nm)'''
+        return convert_unit(2*np.pi*self.hbar_c / np.sqrt(self.energy_eV**2 + 2*self.m0*self.energy_eV), 'nm', StructureHandler.LENGTH_UNIT)
     @property
     def k_z(self):
-        '''Get the wavevector in cyc/nm, crystallographic convention'''
+        '''Get the wavevector in cyc/wavelength units (default cyc/nm), crystallographic convention'''
         return 1/self.wavelength
     @property
     def k_z_angular(self):
-        '''Get the wavevector in rad/nm, physics convention'''
+        '''Get the wavevector in rad/wavelength unit (default rad/nm), physics convention'''
         return 2*np.pi*self.k_z
     def sg(self, g:tuple[float,float,float], kx:np.ndarray=0, ky:np.ndarray=0):
-        '''Returns the excitation error of a given point in reciprocal space'''
+        '''Returns the excitation error of a given point in reciprocal space, in cyc/wavelength unit'''
         sg = g[2] + (kx**2 + ky**2 - (kx+g[0])**2 - (ky+g[1])**2) / (2*self.k_z)
         return sg
     def sg_en_masse(self, g:np.ndarray, kx:np.ndarray=0, ky:np.ndarray=0):
@@ -46,6 +46,7 @@ class EwaldSphere:
 
 
 class StructureHandler:
+    LENGTH_UNIT = 'nm' # Any length unit. Acceptable strings include 'nm', 'angstrom'.
     MATERIALS_PROJECT_API = 'E3sCeYTbOOxpD9gtJ1EgevVyhHUn3w2J'
     COMMON_MATERIAL_IDS = dict(Si_Fd3m      = 'mp-149',     # diamond cubic Si
                                Se_Pm3m      = 'mp-7755',    # simple cubic Se, the only known single-element simple cubic structure
@@ -176,7 +177,7 @@ class StructureHandler:
                       b_lo<=yf<=b_hi and
                       c_lo<=zf<=c_hi and 
                       el == site.specie  ):
-                    coords[str(site.specie)].append( site.coords/10 ) # angstrom to nm
+                    coords[str(site.specie)].append( convert_unit(site.coords, 'angstrom', StructureHandler.LENGTH_UNIT) ) # angstrom to nm
         return coords
     def plot_unit_cell_2d(self, axes:Axes=None, 
                        low_frac:tuple[float,float,float]=(-0.1,-0.1,-0.1),
@@ -236,7 +237,7 @@ class StructureHandler:
         
         if frame:
             o = [0,0,0]
-            a1,a2,a3 = self.struct.lattice.matrix/10 # angstrom to nm
+            a1,a2,a3 = convert_unit(self.struct.lattice.matrix, 'angstrom', StructureHandler.LENGTH_UNIT) # angstrom to nm
             edges = [
                 (o, a1),
                 (o, a2),
@@ -299,7 +300,7 @@ class StructureHandler:
         max_sg = abs(max_sg)
 
         recip = self.struct.lattice.reciprocal_lattice_crystallographic
-        matrix = recip.matrix * 10 # inv angstrom to inv nm
+        matrix = convert_unit(recip.matrix, '1/angstrom', '1/'+StructureHandler.LENGTH_UNIT) # inv angstrom to inv nm
 
         # Estimate max h,k,l needed to cover |g| <= 2*k (Ewald sphere diameter), give a little more just to make sure
         if max_g is not None:
@@ -353,7 +354,7 @@ class ElectronDiffractionSpots:
         self.hkl = hkl
         if g is None:
             recip = self.struct.lattice.reciprocal_lattice_crystallographic
-            g = self.hkl @ recip.matrix * 10 # inv angstrom to inv nm
+            g = convert_unit(self.hkl @ recip.matrix, '1/angstrom', '1/'+StructureHandler.LENGTH_UNIT) # inv angstrom to inv nm
         self.g = g
         if q is None:
             q = np.linalg.norm(self.g, axis=1)
@@ -380,7 +381,7 @@ class ElectronDiffractionSpots:
         for site in struct.sites:
             # species can be a Composition; iterate with occupancies
             for sp, occ in site.species.items():
-                f_q = self.default_electron_atomic_form_factors[sp.symbol](self.q)
+                f_q = self.default_electron_atomic_form_factors[sp.symbol](self.q, q_unit='1/' + StructureHandler.LENGTH_UNIT)
 
                 phase = np.exp(2j*np.pi*np.dot(self.hkl, site.frac_coords))
                 self.Fg += occ * f_q * phase
@@ -456,9 +457,9 @@ class ElectronDiffractionSpots:
         dq = 2*g_max/Nq
 
         if not axes.get_xlabel():
-            axes.set_xlabel('$nm^{-1}$')
+            axes.set_xlabel(f'${pretty_unit(StructureHandler.LENGTH_UNIT)}^{{-1}}$')
         if not axes.get_ylabel():
-            axes.set_ylabel('$nm^{-1}$')
+            axes.set_ylabel(f'${pretty_unit(StructureHandler.LENGTH_UNIT)}^{{-1}}$')
         
         arr = self.pattern_as_array(g_max,dq, sample_thickness=sample_thickness)
         qx,qy = self.meshgrid(g_max,dq)
@@ -487,7 +488,7 @@ class ElectronDiffractionSpots:
             kwargs.update(weights=w)
 
         if not axes.get_xlabel():
-            axes.set_xlabel('$q (nm^{-1})$')
+            axes.set_xlabel(f'$q ({pretty_unit(StructureHandler.LENGTH_UNIT)}^{{-1}})$')
 
         return axes.hist(np.linalg.norm(g, axis=1), **kwargs)
 
