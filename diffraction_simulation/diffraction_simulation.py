@@ -5,6 +5,7 @@ from matplotlib import colormaps
 from matplotlib import pyplot as plt
 from pymatgen.core import Structure
 from pymatgen.core.operations import SymmOp
+from pymatgen.transformations.standard_transformations import RotationTransformation
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 from pymatgen.ext.matproj import MPRester
 from .electron_atomic_form_factor import default_electron_atomic_form_factors
@@ -147,12 +148,13 @@ class StructureHandler:
         '''
         # define the transformation matrix
         M = [[1, -1, 0],
-            [1, 1, 0],
-            [0, 0, 1]]
+             [1,  1, 0],
+             [0,  0, 1]]
 
         # apply the transformation
         self.struct.make_supercell(M)
-        self.struct.apply_operation(SymmOp.from_rotation_and_translation(M,[0,0,0]))
+        self.struct = RotationTransformation([0,0,1], 45).apply_transformation(self.struct)
+        # self.struct.apply_operation(SymmOp.from_rotation_and_translation(R,[0,0,0]))
         return self
     def _get_atom_positions(self, low_frac:tuple[float,float,float]=(-0.1,-0.1,-0.1),
                                   high_frac:tuple[float,float,float]=(1.1,1.1,1.1))->dict[str,list[np.ndarray]]:
@@ -336,6 +338,7 @@ class StructureHandler:
 
         return ElectronDiffractionSpots(struct=self.struct, hkl=hkl, g=g, q=q, sg=s)
     def powder_hkl(self, ewald:EwaldSphere, max_sg:float, max_g:float=None, num_orientations:int=100, texture:float=0):
+        '''TODO Check if I'm oversampling certain directions'''
         if texture != 0:
             raise ValueError('Texture not yet implemented!')
 
@@ -387,7 +390,7 @@ class ElectronDiffractionSpots:
                 self.Fg += occ * f_q * phase
     def kinematical_excitation_err_correction(self, sample_thickness:float):
         '''See Fultz and Howe, chapters 6, 8, and 13. Mostly contained within chapter 8.'''
-        return np.sinc(np.pi*self.sg*sample_thickness) * sample_thickness # squared later
+        return np.sinc(np.pi*self.sg*sample_thickness) * sample_thickness # squared later TODO address sample_thickness units
     def get_intensity(self, sample_thickness:float=None, normalize:bool=True, eps:float=1e-9):
         """
         Calculate the diffraction intensity for unique in-plane g-vectors.
