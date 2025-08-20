@@ -58,8 +58,10 @@ class StructureHandler:
                                TiN_Fm3m     = 'mp-492')     # cubic TiN
     @staticmethod
     def _uniformly_sampled_points_on_sphere(num_points:int=100):
-        phi = np.arccos(1 - 2 * np.linspace(0.5 / num_points, 1 - 0.5 / num_points, num_points))
-        theta = 2 * np.pi * np.arange(num_points) / ((1 + np.sqrt(5)) / 2)
+        # Fibonacci lattice method for uniform sampling on a sphere
+        indices = np.arange(0, num_points, dtype=float) + 0.5
+        phi = 2 * np.pi * indices / ((1 + np.sqrt(5)) / 2)
+        theta = np.arccos(1 - 2 * indices / num_points)
         return theta, phi
     @staticmethod
     def _euler_rotation_matrix_zxz(alpha:float, beta:float, gamma:float):
