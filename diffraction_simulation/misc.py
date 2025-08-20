@@ -19,6 +19,7 @@ class KeyAwareDefaultDict(dict):
         return self[key]
 
 
+from matplotlib import pyplot as plt
 from matplotlib.figure import Figure
 from matplotlib.transforms import Bbox
 from PIL import Image
