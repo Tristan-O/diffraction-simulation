@@ -56,6 +56,85 @@ class StructureHandler:
                                HfO2_P21c    = 'mp-352',     # monoclinic HfO2
                                HfO2_P42nmc  = 'mp-1018721', # tetragonal HfO2
                                TiN_Fm3m     = 'mp-492')     # cubic TiN
+    @staticmethod
+    def _uniformly_sampled_points_on_sphere(num_points:int=100):
+        phi = np.arccos(1 - 2 * np.linspace(0.5 / num_points, 1 - 0.5 / num_points, num_points))
+        theta = 2 * np.pi * np.arange(num_points) / ((1 + np.sqrt(5)) / 2)
+        return theta, phi
+    @staticmethod
+    def _euler_rotation_matrix_zxz(alpha:float, beta:float, gamma:float):
+        # Euler ZXZ rotation matrix
+        ca, cb, cg = np.cos([alpha, beta, gamma])
+        sa, sb, sg = np.sin([alpha, beta, gamma])
+
+        Rz1 = np.array([
+            [ca, -sa, 0],
+            [sa,  ca, 0],
+            [ 0,   0, 1]
+        ])
+        Rx  = np.array([
+            [1,   0,    0],
+            [0,  cb, -sb],
+            [0,  sb,  cb]
+        ])
+        Rz2 = np.array([
+            [cg, -sg, 0],
+            [sg,  cg, 0],
+            [ 0,   0, 1]
+        ])
+        return Rz1 @ Rx @ Rz2
+    @staticmethod
+    def Rx(theta:float):
+        Rx  = np.array([
+            [1, 0,             0            ],
+            [0, np.cos(theta),-np.sin(theta)],
+            [0, np.sin(theta), np.cos(theta)]
+        ])
+        return Rx
+    @staticmethod
+    def Rz(theta:float):
+        Rx  = np.array([
+            [np.cos(theta),-np.sin(theta), 0],
+            [np.sin(theta), np.cos(theta), 0],
+            [0,             0,             1],
+        ])
+        return Rx
+    @staticmethod
+    def _uniformly_sampled_euler_rotation_matrices_zxz(num_points_sqrt:int=100):
+        alpha, beta = StructureHandler._uniformly_sampled_points_on_sphere(num_points=num_points_sqrt)
+        gamma = np.linspace(0,2*np.pi, num_points_sqrt)
+
+        alpha = np.stack([alpha]*num_points_sqrt).T.reshape(-1)
+        beta  = np.stack([beta ]*num_points_sqrt).T.reshape(-1)
+        gamma = np.stack([gamma]*num_points_sqrt).reshape(-1)
+
+        ca, cb, cg = np.cos([alpha, beta, gamma])
+        sa, sb, sg = np.sin([alpha, beta, gamma])
+        zeros = np.zeros_like(alpha)
+        ones  = np.ones_like(alpha)
+
+        Rz1 = np.array([
+            [ca,     -sa,  zeros],
+            [sa,     ca,   zeros],
+            [zeros, zeros, ones]
+        ])
+        Rx  = np.array([
+            [ones,  zeros, zeros],
+            [zeros, cb,    -sb],
+            [zeros, sb,    cb]
+        ])
+        Rz2 = np.array([
+            [cg,    -sg,   zeros],
+            [sg,     cg,   zeros],
+            [zeros, zeros, ones]
+        ])
+        # all matrices are shape 3x3xN here
+
+        res = np.einsum('ijk,jlk->ilk', Rz1, Rx)
+        res = np.einsum('ijk,jlk->kil', res, Rz2)
+        # res now has shape (N,3,3)
+        
+        return res
     @classmethod
     def from_matproj(cls, material_id:str="Si_Fd3m", conventional_unit_cell:bool=True, shift_basis:bool=True):
         if material_id in cls.COMMON_MATERIAL_IDS.keys():
@@ -97,7 +176,7 @@ class StructureHandler:
         self.struct = self.struct.apply_operation(SymmOp.from_rotation_and_translation(np.eye(3), -shift))
 
         return self
-    def align_structure(self, 
+    def align_structure_uvw_to_z(self, 
                         beam_incident:tuple[float,float,float]=(0,0,1),
                         beam_x_ref:tuple[float,float,float]=(1,0,0)):
         """
@@ -140,6 +219,20 @@ class StructureHandler:
             coords=self.struct.frac_coords,
             coords_are_cartesian=False
         )
+    def apply_matrix_transformation(self, R:np.ndarray):
+        """
+        Apply a rotation matrix R (3x3) to the lattice vectors of the structure.
+        The atomic fractional coordinates remain unchanged.
+        """
+        lat_matrix = np.array(self.struct.lattice.matrix)
+        new_lattice_matrix = np.dot(lat_matrix, R)
+        self.struct = Structure(
+            lattice=new_lattice_matrix,
+            species=self.struct.species,
+            coords=self.struct.frac_coords,
+            coords_are_cartesian=False
+        )
+        return self
     def BCT2FCC_transform(self):
         '''
         Transforms lattice vectors a1 and a2 to (a1-a2) and (a1+a2). 
@@ -340,17 +433,27 @@ class StructureHandler:
 
         return ElectronDiffractionSpots(struct=self.struct, hkl=hkl, g=g, q=q, sg=s)
     def powder_hkl(self, ewald:EwaldSphere, max_sg:float, max_g:float=None, num_orientations:int=100, texture:float=0):
-        '''TODO Check if I'm oversampling certain directions'''
         if texture != 0:
             raise ValueError('Texture not yet implemented!')
 
         handler = StructureHandler( self.struct.copy() )
-        for i in range(num_orientations):
-            handler.align_structure(np.random.uniform(-1,1, size=3), np.random.uniform(-1,1, size=3))
-            if i == 0:
-                results = handler.get_excitable_hkl(ewald=ewald, max_sg=max_sg, max_g=max_g)
-            else:
-                results.extend(handler.get_excitable_hkl(ewald=ewald, max_sg=max_sg, max_g=max_g))
+        results = None
+
+        num = int(np.sqrt(num_orientations))
+        theta,phi = self._uniformly_sampled_points_on_sphere(num)
+        
+        for th,ph in zip(theta,phi):
+            R1 = StructureHandler.Rz(th) @ StructureHandler.Rx(ph)
+            handler.apply_matrix_transformation(R1)
+
+            R2 = StructureHandler.Rz(2*np.pi/num)
+            for _ in range(num-1):
+                handler.apply_matrix_transformation(R2)
+                if results is None:
+                    results = handler.get_excitable_hkl(ewald=ewald, max_sg=max_sg, max_g=max_g)
+                else:
+                    results.extend(handler.get_excitable_hkl(ewald=ewald, max_sg=max_sg, max_g=max_g))
+            handler.apply_matrix_transformation(R2@np.linalg.inv(R1))
         return results
 
 
