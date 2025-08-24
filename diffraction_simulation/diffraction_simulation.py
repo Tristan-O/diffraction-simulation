@@ -634,7 +634,7 @@ class ElectronDiffractionSpots:
 
         return axes.hist(q, **kwargs)
     @staticmethod
-    def stacked_hist(axes:Axes, *dps:ElectronDiffractionSpots, radial_weight:bool=True, sample_thickness:float=None, **kwargs):
+    def stacked_hist(axes:Axes, *dps:ElectronDiffractionSpots, radial_weight:bool=True, sample_thicknesses:float|tuple[float]=None, **kwargs):
         """
         Plots a stacked histogram of in-plane scattering vector magnitudes (q) for multiple ElectronDiffractionSpots objects.
         Parameters
@@ -668,8 +668,8 @@ class ElectronDiffractionSpots:
         """
         
         all_q,all_w = [],[]
-        for dp in dps:
-            _,g,_,I = dp.get_intensity(sample_thickness=sample_thickness)
+        for i,dp in enumerate(dps):
+            _,g,_,I = dp.get_intensity(sample_thickness=sample_thicknesses[i] if isinstance(sample_thicknesses, (list,tuple,np.ndarray)) else sample_thicknesses)
             q = np.linalg.norm(g[:,:2], axis=1) # in-plane q
             if 'weights' not in kwargs.keys():
                 w = I
