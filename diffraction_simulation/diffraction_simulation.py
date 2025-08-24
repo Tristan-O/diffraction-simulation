@@ -498,7 +498,7 @@ class ElectronDiffractionSpots:
     def kinematical_excitation_err_correction(self, sample_thickness:float):
         '''See Fultz and Howe, chapters 6, 8, and 13. Mostly contained within chapter 8.'''
         return np.sinc(np.pi*self.sg*sample_thickness) * sample_thickness # squared later TODO address sample_thickness units
-    def get_intensity(self, sample_thickness:float=None, normalize:bool=True, eps:float=1e-9):
+    def get_intensity(self, sample_thickness:float=None, eps:float=1e-9):
         """
         Calculate the diffraction intensity for unique in-plane g-vectors.
         This method groups structure factors (Fg) by unique in-plane g-vectors, sums them,
@@ -508,7 +508,6 @@ class ElectronDiffractionSpots:
         
         Args:
             sample_thickness (float): The thickness of the sample. If provided and self.sg is not None, applies excitation error correction to the structure factors.
-            normalize (bool): If True, normalize the output intensities so that their sum is 1.
             eps (float): Minimum intensity threshold. Intensities below this value are excluded from the output.
         
         Returns:
@@ -535,8 +534,8 @@ class ElectronDiffractionSpots:
         Fg = Fg[I>eps]
         I = I[I>eps]
 
-        if normalize:
-            I /= np.sum(I)
+        # if normalize: # this is a nonsensical way of normalizing
+        #     I /= np.sum(I)
 
         return hkl, unique_g, Fg, I
     def pattern_as_array(self, g_max:float, dq:float, sample_thickness:float=None):
