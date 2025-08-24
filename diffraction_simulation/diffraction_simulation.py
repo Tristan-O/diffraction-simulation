@@ -48,7 +48,7 @@ class EwaldSphere:
 
 
 class StructureHandler:
-    LENGTH_UNIT = 'nm' # Any length unit. Acceptable strings include 'nm', 'angstrom'.
+    LENGTH_UNIT = 'nm' # Any length unit. Acceptable strings include 'nm', 'angstrom', etc.
     MATERIALS_PROJECT_API = 'E3sCeYTbOOxpD9gtJ1EgevVyhHUn3w2J'
     COMMON_MATERIAL_IDS = dict(Si_Fd3m      = 'mp-149',     # diamond cubic Si
                                Se_Pm3m      = 'mp-7755',    # simple cubic Se, the only known single-element simple cubic structure
@@ -58,9 +58,26 @@ class StructureHandler:
                                TiN_Fm3m     = 'mp-492')     # cubic TiN
     @staticmethod
     def _uniformly_sampled_points_on_sphere(num_points:int=100):
+        """
+        Generates uniformly distributed points on the surface of a sphere using the Fibonacci lattice method.
+
+        Args:
+            num_points (int, optional): The number of points to sample on the sphere. Defaults to 100.
+
+        Returns:
+            tuple of np.ndarray: A tuple (theta, phi) where:
+                - theta (np.ndarray): Array of polar angles (in radians), shape (num_points,).
+                - phi (np.ndarray): Array of azimuthal angles (in radians), shape (num_points,).
+
+        Notes:
+            - The Fibonacci lattice method provides an efficient way to distribute points APPROXIMATELY uniformly on a sphere.
+            - The returned angles (theta, phi) can be used to convert to Cartesian coordinates for 3D visualization or further computation.
+            - Theta is the polar angle measured from the positive z-axis (0 <= theta <= pi).
+            - Phi is the azimuthal angle in the x-y plane from the positive x-axis (0 <= phi < 2*pi).
+        """
         # Fibonacci lattice method for uniform sampling on a sphere
         indices = np.arange(0, num_points, dtype=float) + 0.5
-        phi = 2 * np.pi * indices / ((1 + np.sqrt(5)) / 2)
+        phi = (2 * np.pi * indices / ((1 + np.sqrt(5)) / 2)) % (2*np.pi) # golden ratio is the most irrational number
         theta = np.arccos(1 - 2 * indices / num_points)
         return theta, phi
     @staticmethod
@@ -227,7 +244,7 @@ class StructureHandler:
         The atomic fractional coordinates remain unchanged.
         """
         lat_matrix = np.array(self.struct.lattice.matrix)
-        new_lattice_matrix = np.dot(lat_matrix, R)
+        new_lattice_matrix = lat_matrix @ R # pymatgen puts lattice vectors as rows
         self.struct = Structure(
             lattice=new_lattice_matrix,
             species=self.struct.species,
@@ -445,12 +462,12 @@ class StructureHandler:
         theta,phi = self._uniformly_sampled_points_on_sphere(num)
         
         for th,ph in zip(theta,phi):
-            R1 = StructureHandler.Rz(th) @ StructureHandler.Rx(ph)
+            R1 = StructureHandler.Rz(ph) @ StructureHandler.Rx(th) # rotate about z by 0<phi<2pi (azimuthal), about x by 0<theta<pi (polar)
             handler.apply_matrix_transformation(R1)
 
             R2 = StructureHandler.Rz(2*np.pi/num)
-            for _ in range(num-1):
-                handler.apply_matrix_transformation(R2)
+            for _ in range(num):
+                handler.apply_matrix_transformation(R2) # doing this effectively indexes from 1, already rotated at i=0
                 if results is None:
                     results = handler.get_excitable_hkl(ewald=ewald, max_sg=max_sg, max_g=max_g)
                 else:
