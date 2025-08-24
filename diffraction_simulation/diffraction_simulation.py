@@ -606,35 +606,117 @@ class ElectronDiffractionSpots:
 
         return im
     def hist(self, axes:Axes, radial_weight:bool=True, sample_thickness:float=None, **kwargs):
+        """
+        Plots a histogram of the in-plane scattering vector magnitudes (q) using the provided axes.
+        Particularly useful for examining powder diffraction.
+        Parameters:
+            axes (Axes): The matplotlib axes object on which to plot the histogram.
+            radial_weight (bool, optional): If True, weights the histogram by intensity divided by q (default: True).
+            sample_thickness (float, optional): The thickness of the sample to use when calculating intensity (default: None).
+            **kwargs: Additional keyword arguments passed to the axes.hist() function.
+        Returns:
+            tuple: The return value from axes.hist(), typically (n, bins, patches).
+        Notes:
+            - If 'weights' is not provided in kwargs, the intensity is used as weights, optionally divided by q if radial_weight is True.
+            - The x-axis label is set to the scattering vector magnitude q with appropriate units if not already set.
+        """
+        
         _,g,_,I = self.get_intensity(sample_thickness=sample_thickness)
+        q = np.linalg.norm(g[:,:2], axis=1) # in-plane q
         if 'weights' not in kwargs.keys():
             w = I
             if radial_weight:
-                w /= np.linalg.norm(g,axis=1) # don't use q here because of geometric line broadening
+                w /= q
             kwargs.update(weights=w)
 
         if not axes.get_xlabel():
             axes.set_xlabel(f'$q ({pretty_unit(StructureHandler.LENGTH_UNIT)}^{{-1}})$')
 
-        return axes.hist(np.linalg.norm(g, axis=1), **kwargs)
+        return axes.hist(q, **kwargs)
     @staticmethod
     def stacked_hist(axes:Axes, *dps:ElectronDiffractionSpots, radial_weight:bool=True, sample_thickness:float=None, **kwargs):
-        all_g,all_w = [],[]
+        """
+        Plots a stacked histogram of in-plane scattering vector magnitudes (q) for multiple ElectronDiffractionSpots objects.
+        Parameters
+        ----------
+        axes : matplotlib.axes.Axes
+            The matplotlib axes object on which to plot the histogram.
+        *dps : ElectronDiffractionSpots
+            One or more ElectronDiffractionSpots objects containing diffraction data to be plotted.
+        radial_weight : bool, optional (default=True)
+            If True, intensity weights are divided by q to account for radial weighting.
+        sample_thickness : float, optional
+            The sample thickness to be passed to the get_intensity method of each ElectronDiffractionSpots object.
+        **kwargs
+            Additional keyword arguments passed to matplotlib's `hist` function. If 'weights' is not provided,
+            the function will use the calculated intensity (optionally radially weighted) as histogram weights.
+        Returns
+        -------
+        n : list or array
+            The values of the histogram bins.
+        bins : array
+            The edges of the bins.
+        patches : list
+            Silent list of individual patches used to create the histogram.
+        Notes
+        -----
+        - The function extracts the in-plane q values (norm of the first two components of g) and corresponding intensities
+          from each ElectronDiffractionSpots object.
+        - If no explicit weights are provided, intensities (optionally divided by q if radial_weight is True) are used as weights.
+        - The x-axis label is set to q with appropriate units if not already set.
+        - The histograms for all provided diffraction patterns are stacked.
+        """
+        
+        all_q,all_w = [],[]
         for dp in dps:
             _,g,_,I = dp.get_intensity(sample_thickness=sample_thickness)
+            q = np.linalg.norm(g[:,:2], axis=1) # in-plane q
             if 'weights' not in kwargs.keys():
                 w = I
                 if radial_weight:
-                    w /= np.linalg.norm(g,axis=1) # don't use q here because of geometric line broadening
+                    w /= q
                 all_w.append(w)
 
-            all_g.append(np.linalg.norm(g[:,:2], axis=1))
+            all_q.append(q)
 
         if not axes.get_xlabel():
             axes.set_xlabel(f'$q ({pretty_unit(StructureHandler.LENGTH_UNIT)}^{{-1}})$')
         
-        return axes.hist(all_g, weights=all_w, stacked=True, **kwargs)
+        return axes.hist(all_q,
+                         weights=kwargs.pop('weights', all_w), 
+                         stacked=True, 
+                         **kwargs)
     def hist2d(self, axes:Axes, sample_thickness:float=None, nan_color:str='black', cmap:str='gray', **kwargs):
+        """
+        Plots a 2D histogram of diffraction intensity at the in-detector-plane coordinates for the reciprocal lattice on the given matplotlib axes.
+        The 2D histogram is the diffraction pattern.
+        This method computes the diffraction intensity for the current structure (optionally for a given sample thickness)
+        and visualizes it as a 2D histogram in reciprocal space (qx, qy) using the specified colormap and options.
+        NaN values in the data are displayed in the specified `nan_color`.
+        Parameters
+        ----------
+        axes : matplotlib.axes.Axes
+            The matplotlib axes object on which to plot the histogram.
+        sample_thickness : float, optional
+            The thickness of the sample to use for intensity calculation. If None, uses the default or previously set value.
+        nan_color : str, default 'black'
+            The color to use for NaN values in the colormap.
+        cmap : str, default 'gray'
+            The name of the matplotlib colormap to use for the histogram.
+        **kwargs
+            Additional keyword arguments passed to `axes.hist2d`, such as `bins`, `range`, etc.
+            If 'weights' is not provided, the computed intensity values are used as weights.
+        Returns
+        -------
+        tuple
+            The return value of `axes.hist2d`, typically a tuple containing the histogram image, xedges, yedges, and the QuadMesh.
+        Notes
+        -----
+        - The axes labels are automatically set to reflect reciprocal space units if not already set.
+        - The colormap is modified so that NaN values appear in the specified `nan_color`.
+        - This function relies on `self.get_intensity` to obtain reciprocal space coordinates and intensity values.
+        """
+        
         _,g,_,I = self.get_intensity(sample_thickness=sample_thickness)
         if 'weights' not in kwargs.keys():
             kwargs.update(weights=I)
