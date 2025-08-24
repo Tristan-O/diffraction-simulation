@@ -617,4 +617,16 @@ class ElectronDiffractionSpots:
             axes.set_xlabel(f'$q ({pretty_unit(StructureHandler.LENGTH_UNIT)}^{{-1}})$')
         
         return axes.hist(all_g, weights=all_w, stacked=True, **kwargs)
+    def hist2d(self, axes:Axes, sample_thickness:float=None, nan_color:str='black', cmap:str='gray', **kwargs):
+        _,g,_,I = self.get_intensity(sample_thickness=sample_thickness)
+        if 'weights' not in kwargs.keys():
+            kwargs.update(weights=I)
 
+        if not axes.get_xlabel():
+            axes.set_xlabel(f'$q_x ({pretty_unit(StructureHandler.LENGTH_UNIT)}^{{-1}})$')
+        if not axes.get_ylabel():
+            axes.set_ylabel(f'$q_y ({pretty_unit(StructureHandler.LENGTH_UNIT)}^{{-1}})$')
+
+        cmap = colormaps[cmap]
+        cmap.set_bad(nan_color)
+        return axes.hist2d(g[:,0], g[:,1], cmap=cmap, **kwargs)
